@@ -1,0 +1,7 @@
+opencv-python
+numpy
+pandas
+streamlit
+dlib
+face_recognition
+setuptools<81

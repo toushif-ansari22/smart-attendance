@@ -7,6 +7,8 @@ import numpy as np
 import face_recognition
 from datetime import datetime
 
+import integrity
+
 SCALE = 0.5
 TOLERANCE = 0.5
 DROP_RATIO = 0.75      # aankh apni normal height se is ratio se kam ho to "band"
@@ -26,32 +28,26 @@ known_labels = data["names"]
 print(f"{len(known_encodings)} encodings load hui")
 
 conn = sqlite3.connect(DB)
+integrity.ensure_schema(conn)
 cur = conn.cursor()
 cur.execute("""CREATE TABLE IF NOT EXISTS students (
     roll_no TEXT PRIMARY KEY,
     name TEXT NOT NULL)""")
-cur.execute("""CREATE TABLE IF NOT EXISTS attendance (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    roll_no TEXT NOT NULL,
-    date TEXT NOT NULL,
-    time TEXT NOT NULL,
-    UNIQUE(roll_no, date))""")
 conn.commit()
+
+check = integrity.verify(conn)
+print(f"Integrity check: {check['status'].upper()} ({check['checked']} records)")
+if check["status"] == "unsealed":
+    print(check["message"])
+    raise SystemExit
+if check["status"] == "broken":
+    print("WARNING: " + check["message"])
 
 
 def already_marked(roll):
     today = datetime.now().strftime("%Y-%m-%d")
     cur.execute("SELECT 1 FROM attendance WHERE roll_no=? AND date=?", (roll, today))
     return cur.fetchone() is not None
-
-
-def mark_attendance(roll):
-    now = datetime.now()
-    cur.execute(
-        "INSERT OR IGNORE INTO attendance (roll_no, date, time) VALUES (?, ?, ?)",
-        (roll, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")))
-    conn.commit()
-    return cur.rowcount == 1
 
 
 def eye_ratio(eye):
@@ -136,8 +132,10 @@ while True:
                     if already_marked(roll):
                         text, color = f"{name} - Already marked", (0, 255, 0)
                     elif count >= REQUIRED_BLINKS:
-                        if mark_attendance(roll):
-                            print(f"[MARKED] {roll} - {name} - {datetime.now():%H:%M:%S}")
+                        score = 1.0 - float(dists[best])
+                        if integrity.add_entry(conn, roll, score, count):
+                            print(f"[MARKED] {roll} - {name} - {datetime.now():%H:%M:%S} "
+                                  f"(match score {score:.2f}, blinks {count}, sealed)")
                         text, color = f"{name} - MARKED", (0, 255, 0)
                     else:
                         text = f"{name} - Palak jhapkao ({count}/{REQUIRED_BLINKS})"
@@ -154,7 +152,7 @@ while True:
             cv2.putText(frame, info, (left_, bottom + 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-    cv2.imshow("Smart Attendance (Blink v3)", frame)
+    cv2.imshow("Smart Attendance (Blink v3 + Integrity)", frame)
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 

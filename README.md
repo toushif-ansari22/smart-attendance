@@ -8,14 +8,15 @@ Built as a diploma minor project (Computer Engineering).
 
 - **Face recognition attendance**: webcam identifies students and marks attendance in SQLite (one entry per student per day).
 - **Anti-spoofing (liveness check)**: attendance is marked only after 2 clear eye blinks, so a photo shown on a phone does not work.
-- **Dashboard**: student-wise attendance %, date-wise present list, and a low-attendance list (default threshold 75%).
+- **Tamper-proof log**: every record is stored with an HMAC-SHA256 hash chain. Editing or deleting a record is detected and shown in the dashboard Integrity tab or with `python integrity.py verify`.
+- **Dashboard**: student-wise attendance %, date-wise present list, low-attendance list (default threshold 75%) and an Integrity tab.
 - **Email alerts**: students below the threshold get an automatic email (Gmail SMTP).
 
 ## How it works
 
 ```
 Webcam -> face detection -> face encoding (128-d) -> match with registered students
-       -> blink check (2 blinks in 8 s) -> SQLite attendance table
+       -> blink check (2 blinks in 8 s) -> hash-chained record in SQLite
        -> Streamlit dashboard + email alert for low attendance
 ```
 
@@ -32,7 +33,8 @@ Python, OpenCV, face_recognition (dlib), NumPy, pandas, SQLite, Streamlit, smtpl
 | `register.py` | Capture 10 photos of a student from the webcam |
 | `encode.py` | Build face encodings from the `dataset/` folder |
 | `recognize.py` | Basic live attendance (no liveness check) |
-| `recognize_blink3.py` | Live attendance with blink anti-spoofing (recommended) |
+| `recognize_blink3.py` | Live attendance with blink anti-spoofing; saves records through `integrity.py` (recommended) |
+| `integrity.py` | Tamper-proof hash-chain log: add, verify and re-seal records |
 | `dashboard.py` | Streamlit dashboard |
 | `alert.py` | Low-attendance email alerts |
 | `seed_demo.py` | Creates `demo.db` with fake data for testing the dashboard and alerts |
@@ -70,13 +72,19 @@ pip install -r requirements.txt
    ```
    Face the camera and blink twice clearly. Press `Q` to quit.
 
-4. **Open the dashboard**:
+4. **Check the log is intact** (any edit or delete of a record is reported):
+   ```bash
+   python integrity.py verify
+   ```
+   If you already have old records, run `python integrity.py rebuild` once to seal them. During testing, remove today's record with `python integrity.py delete-today ROLL`.
+
+5. **Open the dashboard**:
    ```bash
    streamlit run dashboard.py
    ```
    To try it with fake data: `python seed_demo.py`, then type `demo.db` in the sidebar "Database file" box.
 
-5. **Send low-attendance emails** (Gmail App Password required):
+6. **Send low-attendance emails** (Gmail App Password required):
    ```bash
    export ALERT_EMAIL="you@gmail.com"
    read -s "ALERT_APP_PASS?Password: "
@@ -90,17 +98,19 @@ pip install -r requirements.txt
 
 - A **video replay** of a person blinking on a screen may still pass the blink check. A depth camera or head-turn challenge would be needed to stop this.
 - Recognition accuracy depends on lighting and on the quality of registration photos.
+- The hash chain is protected by a secret key file (`.att_key`). Anyone who has that key and runs the admin command `python integrity.py rebuild` can re-seal edited data, so the key must be kept private.
 
 ## Future scope
 
 - Random head-turn challenge for stronger liveness detection
 - Multi-camera support and a web-based registration page
+- Android app (Flutter with on-device liveness) that sends frames to this Python backend
 - Parent notification through SMS or WhatsApp
 - Monthly PDF/Excel attendance reports
 
 ## Privacy
 
-Student photos (`dataset/`), face encodings (`encodings.pickle`) and attendance databases (`*.db`) are not stored in this repository.
+Student photos (`dataset/`), face encodings (`encodings.pickle`), attendance databases (`*.db`) and the secret key (`.att_key`) are not stored in this repository.
 
 ## Author
 
